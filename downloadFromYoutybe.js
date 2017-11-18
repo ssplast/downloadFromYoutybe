@@ -8,7 +8,7 @@ global.opt = {
     length: null,
     ext_file: '.mp4',
     url: 'https://www.youtube.com/watch?v=',
-    target: 'первый.html',
+    target: 'file with html text dom page, example: https://www.youtube.com/channel/(id channel)/videos',
     full_time: 0,
     full_size: 0
 };
