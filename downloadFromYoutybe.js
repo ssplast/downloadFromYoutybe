@@ -1,124 +1,182 @@
-global.opt = {
-    1: '0000',
-    2: '000',
-    3: '00', 
-    4: '0',
-    5: '',
-    i: null,
-    length: null,
-    ext_file: '.mp4',
-    url: 'https://www.youtube.com/watch?v=',
-    target: 'file with html text dom page, example: https://www.youtube.com/channel/(id channel)/videos',
-    full_time: 0,
-    full_size: 0
+global.ctx = {
+    
+    numbers: 6,
+    startPosition: 45,
+    endPosition: 47,
+    destinationFolder: null,
+    format: 'video', // false != audio
+    data: ()=>{
+        return cheerio.load(
+            fs.readFileSync(
+                path.join(
+                    __dirEntry,
+                    'dis.html'
+                ), 'utf8'))('#items')
+                .html()
+                .match(/\?v=[a-zA-Z0-9-_]{11}\">\n/g).join().match(/[a-zA-Z0-9-_]{11}/g)
+            },
+    currentId: '',
+    currentIteration: 0,
+    currentFileSize: 0,
+    currentDataDownloadChunk: 0,
+    allFilesSize: 0,
+    totalContentDuration: 0,
+    request: null,
+    init: () => {
+            ctx.data = ctx.data();
+            ctx.currentIteration = ctx.data.length - (ctx.data.length - ctx.startPosition);
+            if(!ctx.endPosition || typeof ctx.endPosition !== 'number') ctx.endPosition = ctx.data.length;
+            if(ctx.data.length < ctx.currentIteration)
+                return console.log('Вы указали начать скачивание с ' + 
+                    (ctx.currentIteration + 1) +' объека, но объектов всего ' + ctx.data.length)
+            console.log(
+                '\nYouTybe Downloader is started ( ' +
+                ctx.startPosition + ' => ' + ctx.endPosition + ' = ' +
+                (ctx.endPosition - ctx.startPosition) + ' )'
+                );
+    },
+    getURL: () => 'https://www.youtube.com/watch?v=' + ctx.data[ctx.currentIteration],
+    finish: () => {
+
+        console.log(
+                        '\n=================================================' +
+                        '\nCongratulation Download Is Finish' +
+                        '\nTotal download items: ' + (ctx.endPosition - ctx.startPosition) +
+                        '\nTotal files size: ' + normaliseSize(ctx.allFilesSize) +
+                        '\nTotal duration time: ' + (ctx.totalContentDuration / 60 / 60).toFixed(2) + ' часов' +
+                        '\nFolder: ' + __dirEntry +
+                        '\n================================================='
+                        )
+    }
+    
+
 };
 
-var dat = cheerio.load(
-    fs.readFileSync(
-        path.join(
-            __dirEntry,
-            opt.target
-        ), 'utf8'))('#items')
-        .html()
-        .match(/\?v=[a-zA-Z0-9-_]{11}\">\n/g).join().match(/[a-zA-Z0-9-_]{11}/g);
 
-opt.i = opt.length = dat.length;
 
-const normaliseSize = function bytesToSize(bytes) {
-    var sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+//ДЕСЯТЬ ЗАПОВЕДЕЙ ДЛЯ МОЛОДОЖЕНОВ. Как сохранить семью?
+//276
+
+// dat = dat.slice(opt.start);
+
+// opt.length = dat.length;
+// opt.i = dat.length;
+
+const normaliseSize = function bytesToSize(bytes, sizes, i) {
+    sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
     if (bytes === 0) return '0 Byte';
-    var i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
-    return Math.round(bytes / Math.pow(1024, i), 2) + ' ' + sizes[i];
+    i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
+    return Math.round(bytes / Math.pow(1024, i)) + sizes[i];
+};
+const normaliseTime = function(time) {
+    sizes = ['s', 'min', 'h'];
+    i = parseInt(Math.floor(Math.log(time) / Math.log(60)));
+    return Math.round(time / Math.pow(60, i)) + sizes[i];
+};
+const numbering = function(str, zero) {
+    str = ctx.currentIteration.toString();
+    zero = '';
+    while(zero.length < ctx.numbers - str.length)
+        zero += '0';
+    return zero + str;
+};
+const cleanString = function(str) {
+    return str.replace(/\/|\\|:|;|\*|\?|\"|\'|\<|\>|\||\s*$|\.*$/g, '');
+};
+const getFileName = function(info) {
+    return path.join(
+        __dirEntry,
+        (ctx.destinationFolder || cleanString(info.author.name)),
+        [
+            numbering(),
+            moment(info.published).format('(YYYY_MM_DD '),
+            info.video_id + ')',
+            cleanString(info.title)
+        ].join(' ') + '.mp4'
+    );
+    
+};
+
+const restartCurrentDownload = function(err) {
+    console.log(err);
+    console.log('currentId: ' + ctx.data[ctx.currentIteration]);
+    console.log('data_array.length: ' + ctx.data[ctx.currentIteration].length);
+    setTimeout(function(){
+                    download()                    
+                }, 5000);
 };
 
 
 
 
+function download() {
 
-global.requestToYoutybe;
-
-function dawn(data_array) {
-    var url = opt.url + data_array.shift(),
-        file_length = 0,
-        data_length = 0;
-
-    ytdl.validateURL(url) &&
-    ytdl.getInfo(url,
+    ytdl.validateURL(ctx.getURL()) &&
+    ytdl.getInfo(ctx.getURL(),
         function (err, info, i) {
+
             if (err) {
-                opt.i--;
-                dawn(data_array);
-                return console.log(err);
+                return restartCurrentDownload(err);
             }
             
             while (i = info.formats.shift()) {
                 if ((!!i.resolution && !i.audioBitrate)) continue;
+                delete info.formats;
                 break;
             }
 
-            requestToYoutybe = request.get(i.url);
+            ctx.request = request.get(i.url);
 
-            requestToYoutybe.on('response', function(response) {
-                if(response.statusCode !== 200)console.log('! ! ! Response: ' + response.statusCode)
+            ctx.request.
+            on('response', function(response) {
+
+                if(response.statusCode !== 200){
+                    return restartCurrentDownload(response.statusCode);
+                }
                 
-                opt.full_size += parseFloat(file_length = response.headers['content-length']);
-                
-                file = path.join(__dirEntry, 
-                            info.author.name,
-                            opt[opt.i.toString().length] + opt.i +
-                            moment(info.published).format('.YYYY:MM:DD.') +
-                            info.video_id + '.' +
-                            (info.title)
-                            .replace(/\//g, '_')
-                            .replace(/\\/g, '_')
-                            .replace(/\s*$/, '')
-                            .replace(/\.*$/, '') + opt.ext_file);
+                ctx.currentFileSize = parseInt(response.headers['content-length']);
 
-                    mkdirp(path.dirname(file));
-
-                    console.log('-----  -----  -----  -----  -----  -----  -----');
-                    
-                    console.log(
-                        opt[opt.i.toString().length] +
-                        opt.i + ' ' +
+                    mkdirp(path.dirname(getFileName(info)));
+                    console.log(normaliseTime(info.length_seconds));
+                    console.log('\n' +
+                        numbering() + ' ' +
                         info.video_id +
-                        ' - 🎬 ' + i.resolution +
-                        ' 🎧 ' + i.audioBitrate + ' Размер: ' +
-                        file_length + ' = ' + normaliseSize(file_length) +
-                        '\nАвтор: ' + info.author.name + '\n' +
-                        info.title
+                        ' 🎬 ' + i.resolution +
+                        ' 🎧 ' + i.audioBitrate + 
+                        ' ⏱ ' + normaliseTime(info.length_seconds) +
+                        ' 📄 ' + normaliseSize(ctx.currentFileSize) +
+                        ' 📺 ' + info.author.name
+                        
                     );
-                    opt.i--;
-                    requestToYoutybe.pipe(fs.createWriteStream(file));
 
-            }).on('data', function(data) {
+                    ctx.request.pipe(fs.createWriteStream(getFileName(info)));
 
-                data_length += data.length;
+            }).on('data', function(data, procent) {
 
-                process.stdout.write('\t' + 
-                    (data_length / file_length * 100)
-                    .toFixed(2) + ' %' + '\033[0G');
+                ctx.currentDataDownloadChunk += data.length;
+                procent = ctx.currentDataDownloadChunk / ctx.currentFileSize * 100
+                
+                process.stdout.write(info.title + ' ' + procent.toFixed(2) + ' %' + '\033[0G');
+                
 
             }).on('error', function(err) {
-                console.log('Ошибка на файле: ' + opt.i);
-                opt.i--;
-                console.log(err);
-                dawn(data_array);
+                return restartCurrentDownload(err);
             }).on('end', function() {
-                opt.full_time += parseFloat(info.length_seconds);
-                
-                if(data_array.length) {
-                    dawn(data_array);
-                }else{
-                    console.log(
-                        'Is Finish'+
-                        '\nTotal download items: ' + opt.length +
-                        '\nTotal files size: ' + normaliseSize(opt.full_size) +
-                        '\nTotal duration time : ' + (opt.full_time / 60 / 60) + ' часов'
-                        )
-                }
+
+                ctx.currentIteration++;
+                ctx.currentDataDownloadChunk = 0;
+
+                ctx.totalContentDuration += parseFloat(info.length_seconds);
+
+                ctx.allFilesSize += ctx.currentFileSize;
+
+                if(ctx.currentIteration < ctx.endPosition) return download();
+
+                ctx.finish();                
             })
         });
 }
 
-dawn(dat);
+ctx.init();
+download();
+    
